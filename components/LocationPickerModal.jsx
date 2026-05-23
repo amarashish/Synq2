@@ -10,7 +10,7 @@ import {
 import { useState, useRef, useEffect } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
-import MapView, { Marker } from "react-native-maps";
+import { MapContainer, TileLayer, Marker, useMap } from "react-native-web-maps";
 import { Colors } from "../constants/Colors";
 
 function buildAddressString(address) {
@@ -31,13 +31,25 @@ function buildAddressString(address) {
   return parts.join(", ");
 }
 
+// Component to handle map view updates
+function MapController({ center, zoom }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (center) {
+      map.setView(center, zoom || 15);
+    }
+  }, [center, zoom, map]);
+
+  return null;
+}
+
 export default function LocationPickerModal({
   onClose,
   onLocationSelect,
   isDark,
 }) {
   const theme = Colors[isDark ? "dark" : "light"];
-  const mapRef = useRef(null);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
@@ -45,13 +57,8 @@ export default function LocationPickerModal({
 
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [selectedAddress, setSelectedAddress] = useState("");
-
-  const defaultRegion = {
-    latitude: 19.076,
-    longitude: 72.8777,
-    latitudeDelta: 0.05,
-    longitudeDelta: 0.05,
-  };
+  const [mapCenter, setMapCenter] = useState([19.076, 72.8777]);
+  const [mapZoom, setMapZoom] = useState(12);
 
   useEffect(() => {
     (async () => {
@@ -63,25 +70,13 @@ export default function LocationPickerModal({
           });
           const { latitude, longitude } = loc.coords;
           setSelectedLocation({ latitude, longitude });
+          setMapCenter([latitude, longitude]);
+          setMapZoom(15);
           const [address] = await Location.reverseGeocodeAsync({
             latitude,
             longitude,
           });
           setSelectedAddress(buildAddressString(address));
-          setTimeout(() => {
-            try {
-              if (mapRef.current) {
-                mapRef.current.animateToRegion({
-                  latitude,
-                  longitude,
-                  latitudeDelta: 0.01,
-                  longitudeDelta: 0.01,
-                });
-              }
-            } catch (animErr) {
-              console.log("[LocationPicker] animate error:", animErr);
-            }
-          }, 500);
         }
       } catch (e) {
         console.log("[LocationPicker] Init error:", e);
@@ -89,21 +84,26 @@ export default function LocationPickerModal({
     })();
   }, []);
 
-  const handleMapPress = async (e) => {
+  const handleMapClick = async (e) => {
     try {
-      const coordinate = e.nativeEvent.coordinate;
+      // Leaflet event structure is different
+      const { lat, lng } = e.latlng;
+      const coordinate = { latitude: lat, longitude: lng };
       setSelectedLocation(coordinate);
+      setMapCenter([lat, lng]);
       const [address] = await Location.reverseGeocodeAsync(coordinate);
       setSelectedAddress(buildAddressString(address));
     } catch (err) {
-      console.log("[LocationPicker] MapPress error:", err);
+      console.log("[LocationPicker] MapClick error:", err);
     }
   };
 
-  const handleMarkerDragEnd = async (e) => {
+  const handleMarkerDrag = async (e) => {
     try {
-      const coordinate = e.nativeEvent.coordinate;
+      const { lat, lng } = e.target.getLatLng();
+      const coordinate = { latitude: lat, longitude: lng };
       setSelectedLocation(coordinate);
+      setMapCenter([lat, lng]);
       const [address] = await Location.reverseGeocodeAsync(coordinate);
       setSelectedAddress(buildAddressString(address));
     } catch (err) {
@@ -129,14 +129,8 @@ export default function LocationPickerModal({
       });
       setSelectedLocation({ latitude, longitude });
       setSelectedAddress(buildAddressString(address));
-      if (mapRef.current) {
-        mapRef.current.animateToRegion({
-          latitude,
-          longitude,
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
-        });
-      }
+      setMapCenter([latitude, longitude]);
+      setMapZoom(15);
     } catch (error) {
       console.log("[LocationPicker] Error getting location:", error);
       Alert.alert("Error", "Could not get your current location.");
@@ -166,14 +160,8 @@ export default function LocationPickerModal({
             longitude: first.longitude,
           });
           setSelectedAddress(first.addressText);
-          if (mapRef.current) {
-            mapRef.current.animateToRegion({
-              latitude: first.latitude,
-              longitude: first.longitude,
-              latitudeDelta: 0.01,
-              longitudeDelta: 0.01,
-            });
-          }
+          setMapCenter([first.latitude, first.longitude]);
+          setMapZoom(15);
         }
       } else {
         setSearchResults([]);
@@ -279,36 +267,38 @@ export default function LocationPickerModal({
       </View>
 
       <View style={{ flex: 1 }}>
-        <MapView
-          ref={mapRef}
-          style={{ flex: 1 }}
-          initialRegion={defaultRegion}
-          onPress={handleMapPress}
-          showsUserLocation={false}
-          showsMyLocationButton={false}
-          showsCompass={true}
-          toolbarEnabled={false}
+        <MapContainer
+          center={mapCenter}
+          zoom={mapZoom}
+          style={{ height: "100%", width: "100%" }}
+          onClick={handleMapClick}
         >
+          {/* Free Stadia Maps tiles - no API key required */}
+          <TileLayer
+            attribution='&copy; <a href="https://stadiamaps.com/">Stadia Maps</a>'
+            url="https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png"
+          />
+
+          <MapController center={mapCenter} zoom={mapZoom} />
+
           {selectedLocation && (
             <Marker
-              coordinate={selectedLocation}
-              draggable
-              onDragEnd={handleMarkerDragEnd}
-              pinColor={theme.brand}
+              position={[selectedLocation.latitude, selectedLocation.longitude]}
+              draggable={true}
+              eventHandlers={{
+                dragend: handleMarkerDrag,
+              }}
             />
           )}
+
           {searchResults.map((result, index) => (
             <Marker
               key={`search-${index}`}
-              coordinate={{
-                latitude: result.latitude,
-                longitude: result.longitude,
-              }}
-              pinColor={theme.accentGold}
+              position={[result.latitude, result.longitude]}
               opacity={0.7}
             />
           ))}
-        </MapView>
+        </MapContainer>
 
         {searchResults.length > 0 && (
           <View
@@ -343,14 +333,8 @@ export default function LocationPickerModal({
                     setSelectedAddress(result.addressText);
                     setSearchResults([]);
                     setSearchQuery("");
-                    if (mapRef.current) {
-                      mapRef.current.animateToRegion({
-                        latitude: result.latitude,
-                        longitude: result.longitude,
-                        latitudeDelta: 0.01,
-                        longitudeDelta: 0.01,
-                      });
-                    }
+                    setMapCenter([result.latitude, result.longitude]);
+                    setMapZoom(15);
                   }}
                   className="p-3"
                   style={{
