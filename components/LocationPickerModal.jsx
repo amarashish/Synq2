@@ -6,11 +6,11 @@ import {
   ScrollView,
   Alert,
   Platform,
+  StyleSheet,
 } from "react-native";
 import { useState, useRef, useEffect } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
-import { MapContainer, TileLayer, Marker, useMap } from "react-native-web-maps";
 import { Colors } from "../constants/Colors";
 
 function buildAddressString(address) {
@@ -31,17 +31,23 @@ function buildAddressString(address) {
   return parts.join(", ");
 }
 
-// Component to handle map view updates
-function MapController({ center, zoom }) {
-  const map = useMap();
-
-  useEffect(() => {
-    if (center) {
-      map.setView(center, zoom || 15);
-    }
-  }, [center, zoom, map]);
-
-  return null;
+// Placeholder map for native platforms
+function PlaceholderMap({ onMapClick }) {
+  return (
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: "#e0e0e0",
+        justifyContent: "center",
+        alignItems: "center",
+      }}
+    >
+      <Text style={{ color: "#666", fontSize: 16 }}>Map view unavailable</Text>
+      <Text style={{ color: "#999", fontSize: 12, marginTop: 8 }}>
+        Use web platform for map functionality
+      </Text>
+    </View>
+  );
 }
 
 export default function LocationPickerModal({
@@ -69,7 +75,7 @@ export default function LocationPickerModal({
             accuracy: Location.Accuracy.Balanced,
           });
           const { latitude, longitude } = loc.coords;
-          setSelectedLocation({ latitude, longitude });
+          setSelectedLocation([latitude, longitude]);
           setMapCenter([latitude, longitude]);
           setMapZoom(15);
           const [address] = await Location.reverseGeocodeAsync({
@@ -84,30 +90,16 @@ export default function LocationPickerModal({
     })();
   }, []);
 
-  const handleMapClick = async (e) => {
+  const handleMapMessage = async (message) => {
     try {
-      // Leaflet event structure is different
-      const { lat, lng } = e.latlng;
+      const { lat, lng } = message;
       const coordinate = { latitude: lat, longitude: lng };
-      setSelectedLocation(coordinate);
+      setSelectedLocation([lat, lng]);
       setMapCenter([lat, lng]);
       const [address] = await Location.reverseGeocodeAsync(coordinate);
       setSelectedAddress(buildAddressString(address));
     } catch (err) {
-      console.log("[LocationPicker] MapClick error:", err);
-    }
-  };
-
-  const handleMarkerDrag = async (e) => {
-    try {
-      const { lat, lng } = e.target.getLatLng();
-      const coordinate = { latitude: lat, longitude: lng };
-      setSelectedLocation(coordinate);
-      setMapCenter([lat, lng]);
-      const [address] = await Location.reverseGeocodeAsync(coordinate);
-      setSelectedAddress(buildAddressString(address));
-    } catch (err) {
-      console.log("[LocationPicker] MarkerDrag error:", err);
+      console.log("[LocationPicker] Map interaction error:", err);
     }
   };
 
@@ -127,7 +119,7 @@ export default function LocationPickerModal({
         latitude,
         longitude,
       });
-      setSelectedLocation({ latitude, longitude });
+      setSelectedLocation([latitude, longitude]);
       setSelectedAddress(buildAddressString(address));
       setMapCenter([latitude, longitude]);
       setMapZoom(15);
@@ -155,10 +147,7 @@ export default function LocationPickerModal({
         setSearchResults(searchResultsWithAddress);
         if (searchResultsWithAddress.length > 0) {
           const first = searchResultsWithAddress[0];
-          setSelectedLocation({
-            latitude: first.latitude,
-            longitude: first.longitude,
-          });
+          setSelectedLocation([first.latitude, first.longitude]);
           setSelectedAddress(first.addressText);
           setMapCenter([first.latitude, first.longitude]);
           setMapZoom(15);
@@ -176,8 +165,8 @@ export default function LocationPickerModal({
   const handleConfirmLocation = () => {
     if (selectedLocation) {
       onLocationSelect({
-        lat: selectedLocation.latitude,
-        lng: selectedLocation.longitude,
+        lat: selectedLocation[0],
+        lng: selectedLocation[1],
         name: selectedAddress || "Selected Location",
       });
     }
@@ -267,38 +256,17 @@ export default function LocationPickerModal({
       </View>
 
       <View style={{ flex: 1 }}>
-        <MapContainer
-          center={mapCenter}
-          zoom={mapZoom}
-          style={{ height: "100%", width: "100%" }}
-          onClick={handleMapClick}
-        >
-          {/* Free Stadia Maps tiles - no API key required */}
-          <TileLayer
-            attribution='&copy; <a href="https://stadiamaps.com/">Stadia Maps</a>'
-            url="https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png"
+        {Platform.OS === "web" ? (
+          <MapComponentWeb
+            center={mapCenter}
+            zoom={mapZoom}
+            onMapClick={handleMapMessage}
+            selectedLocation={selectedLocation}
+            selectedLocationColor={theme.brand}
           />
-
-          <MapController center={mapCenter} zoom={mapZoom} />
-
-          {selectedLocation && (
-            <Marker
-              position={[selectedLocation.latitude, selectedLocation.longitude]}
-              draggable={true}
-              eventHandlers={{
-                dragend: handleMarkerDrag,
-              }}
-            />
-          )}
-
-          {searchResults.map((result, index) => (
-            <Marker
-              key={`search-${index}`}
-              position={[result.latitude, result.longitude]}
-              opacity={0.7}
-            />
-          ))}
-        </MapContainer>
+        ) : (
+          <PlaceholderMap onMapClick={handleMapMessage} />
+        )}
 
         {searchResults.length > 0 && (
           <View
@@ -326,10 +294,7 @@ export default function LocationPickerModal({
                 <TouchableOpacity
                   key={index}
                   onPress={() => {
-                    setSelectedLocation({
-                      latitude: result.latitude,
-                      longitude: result.longitude,
-                    });
+                    setSelectedLocation([result.latitude, result.longitude]);
                     setSelectedAddress(result.addressText);
                     setSearchResults([]);
                     setSearchQuery("");
@@ -413,8 +378,8 @@ export default function LocationPickerModal({
                   letterSpacing: 0.5,
                 }}
               >
-                {selectedLocation.latitude.toFixed(6)},{" "}
-                {selectedLocation.longitude.toFixed(6)}
+                {selectedLocation[0].toFixed(6)},{" "}
+                {selectedLocation[1].toFixed(6)}
               </Text>
             </View>
           </>
@@ -464,5 +429,116 @@ export default function LocationPickerModal({
         </View>
       </View>
     </View>
+  );
+}
+
+// Web-only map component using Leaflet
+function MapComponentWeb({
+  center,
+  zoom,
+  onMapClick,
+  selectedLocation,
+  selectedLocationColor = "#FF6B6B",
+}) {
+  const mapContainer = useRef(null);
+  const map = useRef(null);
+  const marker = useRef(null);
+  const scriptLoaded = useRef(false);
+
+  useEffect(() => {
+    if (scriptLoaded.current) return;
+    scriptLoaded.current = true;
+
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css";
+    document.head.appendChild(link);
+
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js";
+    script.async = true;
+    document.head.appendChild(script);
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!mapContainer.current || map.current) return;
+
+      const L = window.L;
+      if (!L) {
+        setTimeout(() => {
+          // Retry if Leaflet not loaded yet
+        }, 100);
+        return;
+      }
+
+      map.current = L.map(mapContainer.current).setView(center, zoom);
+
+      L.tileLayer(
+        "https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png",
+        {
+          attribution: '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a>',
+          maxZoom: 20,
+        }
+      ).addTo(map.current);
+
+      const handleMapClick = (e) => {
+        const { lat, lng } = e.latlng;
+
+        if (marker.current) {
+          marker.current.setLatLng([lat, lng]);
+        } else {
+          marker.current = L.marker([lat, lng], { draggable: true })
+            .addTo(map.current)
+            .bindPopup("Location");
+
+          marker.current.on("dragend", () => {
+            const pos = marker.current.getLatLng();
+            onMapClick({ type: "markerDragged", lat: pos.lat, lng: pos.lng });
+          });
+        }
+
+        onMapClick({ type: "mapClicked", lat, lng });
+      };
+
+      map.current.on("click", handleMapClick);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!map.current) return;
+    map.current.setView(center, zoom);
+  }, [center, zoom]);
+
+  useEffect(() => {
+    if (!map.current) return;
+    const L = window.L;
+
+    if (selectedLocation) {
+      if (marker.current) {
+        marker.current.setLatLng(selectedLocation);
+      } else {
+        marker.current = L.marker(selectedLocation, { draggable: true })
+          .addTo(map.current)
+          .bindPopup("Location");
+
+        marker.current.on("dragend", () => {
+          const pos = marker.current.getLatLng();
+          onMapClick({ type: "markerDragged", lat: pos.lat, lng: pos.lng });
+        });
+      }
+    }
+  }, [selectedLocation]);
+
+  return (
+    <div
+      ref={mapContainer}
+      style={{
+        width: "100%",
+        height: "100%",
+      }}
+    />
   );
 }
