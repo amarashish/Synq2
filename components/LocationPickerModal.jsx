@@ -7,10 +7,9 @@ import {
   Alert,
   Platform,
 } from "react-native";
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
-import MapView, { Marker } from "react-native-maps";
 import { Colors } from "../constants/Colors";
 
 function buildAddressString(address) {
@@ -31,13 +30,105 @@ function buildAddressString(address) {
   return parts.join(", ");
 }
 
+function StaticMapPreview({ latitude, longitude, theme }) {
+  const mapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${latitude},${longitude}&zoom=15&size=400x300&markers=color:red%7C${latitude},${longitude}&key=AIzaSyDummyKey`;
+
+  return (
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: "#f0f0f0",
+        justifyContent: "center",
+        alignItems: "center",
+        position: "relative",
+      }}
+    >
+      <View
+        style={{
+          position: "absolute",
+          top: "50%",
+          left: "50%",
+          transform: [{ translateX: -12 }, { translateY: -24 }],
+        }}
+      >
+        <View
+          style={{
+            width: 30,
+            height: 30,
+            borderRadius: 15,
+            backgroundColor: theme.brand,
+            borderWidth: 3,
+            borderColor: "white",
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+        >
+          <Ionicons name="location" size={16} color="white" />
+        </View>
+      </View>
+
+      <View
+        style={{
+          position: "absolute",
+          bottom: 16,
+          left: 16,
+          right: 16,
+          backgroundColor: "rgba(255, 255, 255, 0.9)",
+          padding: 8,
+          borderRadius: theme.elementRadius,
+        }}
+      >
+        <Text
+          style={{
+            fontSize: 11,
+            color: "#666",
+            fontFamily: "Inter-SemiBold",
+          }}
+        >
+          Coordinates
+        </Text>
+        <Text
+          style={{
+            fontSize: 10,
+            color: "#999",
+            fontFamily: "Inter-Medium",
+            marginTop: 2,
+          }}
+        >
+          {latitude.toFixed(6)}, {longitude.toFixed(6)}
+        </Text>
+      </View>
+
+      <View
+        style={{
+          position: "absolute",
+          bottom: 16,
+          right: 16,
+          backgroundColor: "rgba(255, 255, 255, 0.9)",
+          padding: 8,
+          borderRadius: theme.elementRadius,
+        }}
+      >
+        <Text
+          style={{
+            fontSize: 9,
+            color: "#999",
+            fontFamily: "Inter-Medium",
+          }}
+        >
+          Map Preview
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 export default function LocationPickerModal({
   onClose,
   onLocationSelect,
   isDark,
 }) {
   const theme = Colors[isDark ? "dark" : "light"];
-  const mapRef = useRef(null);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
@@ -45,13 +136,6 @@ export default function LocationPickerModal({
 
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [selectedAddress, setSelectedAddress] = useState("");
-
-  const defaultRegion = {
-    latitude: 19.076,
-    longitude: 72.8777,
-    latitudeDelta: 0.05,
-    longitudeDelta: 0.05,
-  };
 
   useEffect(() => {
     (async () => {
@@ -68,48 +152,12 @@ export default function LocationPickerModal({
             longitude,
           });
           setSelectedAddress(buildAddressString(address));
-          setTimeout(() => {
-            try {
-              if (mapRef.current) {
-                mapRef.current.animateToRegion({
-                  latitude,
-                  longitude,
-                  latitudeDelta: 0.01,
-                  longitudeDelta: 0.01,
-                });
-              }
-            } catch (animErr) {
-              console.log("[LocationPicker] animate error:", animErr);
-            }
-          }, 500);
         }
       } catch (e) {
         console.log("[LocationPicker] Init error:", e);
       }
     })();
   }, []);
-
-  const handleMapPress = async (e) => {
-    try {
-      const coordinate = e.nativeEvent.coordinate;
-      setSelectedLocation(coordinate);
-      const [address] = await Location.reverseGeocodeAsync(coordinate);
-      setSelectedAddress(buildAddressString(address));
-    } catch (err) {
-      console.log("[LocationPicker] MapPress error:", err);
-    }
-  };
-
-  const handleMarkerDragEnd = async (e) => {
-    try {
-      const coordinate = e.nativeEvent.coordinate;
-      setSelectedLocation(coordinate);
-      const [address] = await Location.reverseGeocodeAsync(coordinate);
-      setSelectedAddress(buildAddressString(address));
-    } catch (err) {
-      console.log("[LocationPicker] MarkerDrag error:", err);
-    }
-  };
 
   const handleUseCurrentLocation = async () => {
     try {
@@ -129,14 +177,6 @@ export default function LocationPickerModal({
       });
       setSelectedLocation({ latitude, longitude });
       setSelectedAddress(buildAddressString(address));
-      if (mapRef.current) {
-        mapRef.current.animateToRegion({
-          latitude,
-          longitude,
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
-        });
-      }
     } catch (error) {
       console.log("[LocationPicker] Error getting location:", error);
       Alert.alert("Error", "Could not get your current location.");
@@ -159,22 +199,6 @@ export default function LocationPickerModal({
           }),
         );
         setSearchResults(searchResultsWithAddress);
-        if (searchResultsWithAddress.length > 0) {
-          const first = searchResultsWithAddress[0];
-          setSelectedLocation({
-            latitude: first.latitude,
-            longitude: first.longitude,
-          });
-          setSelectedAddress(first.addressText);
-          if (mapRef.current) {
-            mapRef.current.animateToRegion({
-              latitude: first.latitude,
-              longitude: first.longitude,
-              latitudeDelta: 0.01,
-              longitudeDelta: 0.01,
-            });
-          }
-        }
       } else {
         setSearchResults([]);
       }
@@ -183,6 +207,16 @@ export default function LocationPickerModal({
     } finally {
       setIsSearching(false);
     }
+  };
+
+  const handleSelectSearchResult = (result) => {
+    setSelectedLocation({
+      latitude: result.latitude,
+      longitude: result.longitude,
+    });
+    setSelectedAddress(result.addressText);
+    setSearchResults([]);
+    setSearchQuery("");
   };
 
   const handleConfirmLocation = () => {
@@ -279,36 +313,34 @@ export default function LocationPickerModal({
       </View>
 
       <View style={{ flex: 1 }}>
-        <MapView
-          ref={mapRef}
-          style={{ flex: 1 }}
-          initialRegion={defaultRegion}
-          onPress={handleMapPress}
-          showsUserLocation={false}
-          showsMyLocationButton={false}
-          showsCompass={true}
-          toolbarEnabled={false}
-        >
-          {selectedLocation && (
-            <Marker
-              coordinate={selectedLocation}
-              draggable
-              onDragEnd={handleMarkerDragEnd}
-              pinColor={theme.brand}
-            />
-          )}
-          {searchResults.map((result, index) => (
-            <Marker
-              key={`search-${index}`}
-              coordinate={{
-                latitude: result.latitude,
-                longitude: result.longitude,
+        {selectedLocation ? (
+          <StaticMapPreview
+            latitude={selectedLocation.latitude}
+            longitude={selectedLocation.longitude}
+            theme={theme}
+          />
+        ) : (
+          <View
+            style={{
+              flex: 1,
+              backgroundColor: "#f0f0f0",
+              justifyContent: "center",
+              alignItems: "center",
+            }}
+          >
+            <Ionicons name="map" size={48} color="#ccc" />
+            <Text
+              style={{
+                marginTop: 12,
+                color: "#999",
+                fontFamily: "Inter-Medium",
+                fontSize: 14,
               }}
-              pinColor={theme.accentGold}
-              opacity={0.7}
-            />
-          ))}
-        </MapView>
+            >
+              Search or use current location
+            </Text>
+          </View>
+        )}
 
         {searchResults.length > 0 && (
           <View
@@ -335,23 +367,7 @@ export default function LocationPickerModal({
               {searchResults.map((result, index) => (
                 <TouchableOpacity
                   key={index}
-                  onPress={() => {
-                    setSelectedLocation({
-                      latitude: result.latitude,
-                      longitude: result.longitude,
-                    });
-                    setSelectedAddress(result.addressText);
-                    setSearchResults([]);
-                    setSearchQuery("");
-                    if (mapRef.current) {
-                      mapRef.current.animateToRegion({
-                        latitude: result.latitude,
-                        longitude: result.longitude,
-                        latitudeDelta: 0.01,
-                        longitudeDelta: 0.01,
-                      });
-                    }
-                  }}
+                  onPress={() => handleSelectSearchResult(result)}
                   className="p-3"
                   style={{
                     borderBottomWidth:
@@ -439,7 +455,7 @@ export default function LocationPickerModal({
             className="text-xs mb-3 text-center"
             style={{ fontFamily: "Inter-Medium", color: theme.textMuted }}
           >
-            Tap on the map or search to select a location
+            Search or use current location
           </Text>
         )}
 
